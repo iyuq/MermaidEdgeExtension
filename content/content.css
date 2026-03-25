@@ -1,0 +1,265 @@
+/* ─── Mermaid Extension Styles ──────────────────────────────────────── */
+
+/* Hide original code block when diagram is rendered */
+.mermaid-ext-original-hidden {
+  display: none !important;
+}
+
+/* Diagram container */
+.mermaid-ext-container {
+  position: relative;
+  margin: 8px 0;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.mermaid-ext-container:hover {
+  border-color: #0969da;
+}
+
+/* Toolbar */
+.mermaid-ext-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #e1e4e8;
+  flex-wrap: wrap;
+}
+
+.mermaid-ext-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-weight: 500;
+  color: #24292f;
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.mermaid-ext-btn:hover {
+  background: #f3f4f6;
+  border-color: #bbc0c5;
+}
+
+.mermaid-ext-btn:active {
+  background: #ebecf0;
+}
+
+.mermaid-ext-btn-active {
+  background: #ddf4ff;
+  border-color: #54aeff;
+  color: #0969da;
+}
+
+/* Diagram area — layout styles are inside Shadow DOM for CSS isolation.
+   Keep minimal host styles here so the container still participates in
+   the parent layout. */
+.mermaid-ext-diagram {
+  min-height: 60px;
+  overflow: auto;
+}
+
+/* Loading state */
+.mermaid-ext-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #656d76;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+}
+
+.mermaid-ext-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e1e4e8;
+  border-top-color: #0969da;
+  border-radius: 50%;
+  animation: mermaid-ext-spin 0.6s linear infinite;
+}
+
+@keyframes mermaid-ext-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error state */
+.mermaid-ext-error {
+  padding: 12px 16px;
+  border-left: 3px solid #d1242f;
+  background: #ffebe9;
+}
+
+.mermaid-ext-error-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #82071e;
+  margin-bottom: 6px;
+}
+
+.mermaid-ext-error-icon {
+  font-size: 16px;
+}
+
+.mermaid-ext-error-message {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #82071e;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+}
+
+/* ─── Zoom Overlay ─────────────────────────────────────────────────── */
+.mermaid-ext-zoom-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.mermaid-ext-zoom-close {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  font-size: 24px;
+  font-weight: bold;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.mermaid-ext-zoom-close:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-ext-zoom-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+  transform-origin: center center;
+  padding: 20px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.mermaid-ext-zoom-controls {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 20px;
+  z-index: 2147483647;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+}
+
+.mermaid-ext-zoom-controls .mermaid-ext-btn {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  min-width: 30px;
+  justify-content: center;
+}
+
+.mermaid-ext-zoom-controls .mermaid-ext-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ─── Dark Mode Adaptation ─────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  .mermaid-ext-container {
+    background: #161b22;
+    border-color: #30363d;
+  }
+
+  .mermaid-ext-container:hover {
+    border-color: #58a6ff;
+  }
+
+  .mermaid-ext-toolbar {
+    background: #21262d;
+    border-bottom-color: #30363d;
+  }
+
+  .mermaid-ext-btn {
+    color: #c9d1d9;
+    background: #21262d;
+    border-color: #30363d;
+  }
+
+  .mermaid-ext-btn:hover {
+    background: #30363d;
+    border-color: #484f58;
+  }
+
+  .mermaid-ext-btn-active {
+    background: #0d1d30;
+    border-color: #58a6ff;
+    color: #58a6ff;
+  }
+
+  .mermaid-ext-error {
+    background: #2d1b1e;
+    border-left-color: #f85149;
+  }
+
+  .mermaid-ext-error-header {
+    color: #f85149;
+  }
+
+  .mermaid-ext-error-message {
+    color: #ffa198;
+    background: rgba(0, 0, 0, 0.3);
+  }
+
+  .mermaid-ext-diagram {
+    background: #0d1117;
+  }
+}

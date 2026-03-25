@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mermaid Diagram Previewer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <svg class="logo" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5z" fill="#0969da"/>
+        <path d="M14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5z" fill="#0969da"/>
+        <path d="M4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4z" fill="#0969da"/>
+        <path d="M14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" fill="#0969da"/>
+        <path d="M7 10v4M17 10v4M10 7h4M10 17h4" stroke="#0969da" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span class="header-title">Mermaid Previewer</span>
+    </div>
+    <div class="header-right">
+      <label class="toggle-label" title="Enable/Disable extension">
+        <input type="checkbox" id="enableToggle" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="status-bar" id="statusBar">
+    <span class="status-dot"></span>
+    <span id="statusText">Checking page...</span>
+  </div>
+
+  <!-- Theme selector -->
+  <div class="section">
+    <label class="section-label">Theme</label>
+    <div class="theme-options">
+      <button class="theme-btn active" data-theme="default" title="Default theme">
+        <span class="theme-preview theme-default"></span>
+        <span>Default</span>
+      </button>
+      <button class="theme-btn" data-theme="dark" title="Dark theme">
+        <span class="theme-preview theme-dark"></span>
+        <span>Dark</span>
+      </button>
+      <button class="theme-btn" data-theme="forest" title="Forest theme">
+        <span class="theme-preview theme-forest"></span>
+        <span>Forest</span>
+      </button>
+      <button class="theme-btn" data-theme="neutral" title="Neutral theme">
+        <span class="theme-preview theme-neutral"></span>
+        <span>Neutral</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Editor section -->
+  <div class="section">
+    <div class="section-header">
+      <label class="section-label">Quick Editor</label>
+      <div class="editor-actions">
+        <select id="templateSelect" class="template-select" title="Insert a template">
+          <option value="">Templates...</option>
+          <option value="flowchart">Flowchart</option>
+          <option value="sequence">Sequence Diagram</option>
+          <option value="class">Class Diagram</option>
+          <option value="state">State Diagram</option>
+          <option value="er">ER Diagram</option>
+          <option value="gantt">Gantt Chart</option>
+          <option value="pie">Pie Chart</option>
+          <option value="mindmap">Mindmap</option>
+          <option value="timeline">Timeline</option>
+          <option value="gitgraph">Git Graph</option>
+          <option value="quadrant">Quadrant Chart</option>
+          <option value="requirement">Requirement Diagram</option>
+          <option value="c4">C4 Diagram</option>
+          <option value="sankey">Sankey Diagram</option>
+          <option value="xychart">XY Chart</option>
+          <option value="block">Block Diagram</option>
+          <option value="packet">Packet Diagram</option>
+          <option value="kanban">Kanban</option>
+          <option value="architecture">Architecture Diagram</option>
+          <option value="journey">User Journey</option>
+          <option value="zenuml">ZenUML</option>
+        </select>
+      </div>
+    </div>
+    <textarea id="editor" class="editor" spellcheck="false" placeholder="Enter Mermaid diagram syntax here...">flowchart TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action]
+    B -->|No| D[End]
+    C --> D</textarea>
+    <div class="editor-toolbar">
+      <button class="btn btn-primary" id="renderBtn">Render</button>
+      <button class="btn" id="copyBtn">Copy SVG</button>
+      <button class="btn" id="clearBtn">Clear</button>
+    </div>
+  </div>
+
+  <!-- Preview section -->
+  <div class="section">
+    <label class="section-label">Preview</label>
+    <div id="preview" class="preview">
+      <div class="preview-placeholder">Click "Render" to preview your diagram</div>
+    </div>
+    <div id="previewError" class="preview-error" style="display:none;"></div>
+  </div>
+
+  <!-- Supported types reference -->
+  <div class="section">
+    <details class="reference">
+      <summary class="section-label reference-toggle">Supported Diagram Types (23)</summary>
+      <div class="reference-list">
+        <div class="ref-item"><code>flowchart</code> Processes, decisions</div>
+        <div class="ref-item"><code>sequenceDiagram</code> Interactions, APIs</div>
+        <div class="ref-item"><code>classDiagram</code> Class structures</div>
+        <div class="ref-item"><code>stateDiagram-v2</code> State machines</div>
+        <div class="ref-item"><code>erDiagram</code> Database design</div>
+        <div class="ref-item"><code>gantt</code> Project timelines</div>
+        <div class="ref-item"><code>pie</code> Proportions</div>
+        <div class="ref-item"><code>mindmap</code> Hierarchies</div>
+        <div class="ref-item"><code>timeline</code> Milestones</div>
+        <div class="ref-item"><code>gitGraph</code> Branches, merges</div>
+        <div class="ref-item"><code>quadrantChart</code> 4-quadrant analysis</div>
+        <div class="ref-item"><code>requirementDiagram</code> Traceability</div>
+        <div class="ref-item"><code>C4Context</code> System architecture</div>
+        <div class="ref-item"><code>sankey-beta</code> Flow, conversions</div>
+        <div class="ref-item"><code>xychart-beta</code> Line/bar charts</div>
+        <div class="ref-item"><code>block-beta</code> System blocks</div>
+        <div class="ref-item"><code>packet-beta</code> Network packets</div>
+        <div class="ref-item"><code>kanban</code> Task boards</div>
+        <div class="ref-item"><code>architecture-beta</code> Architecture</div>
+        <div class="ref-item"><code>radar-beta</code> Multi-dimensional</div>
+        <div class="ref-item"><code>treemap-beta</code> Hierarchical data</div>
+        <div class="ref-item"><code>journey</code> User experience</div>
+        <div class="ref-item"><code>zenuml</code> Sequence (code style)</div>
+      </div>
+    </details>
+  </div>
+
+  <script src="../lib/mermaid.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
