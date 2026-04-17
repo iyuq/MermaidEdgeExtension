@@ -180,7 +180,10 @@
       container.appendChild(toolbar);
       container.appendChild(wrapper);
 
-      wrapper.addEventListener("click", () => openZoomOverlay(svg, source));
+      wrapper.addEventListener("click", () => {
+        const liveSvg = shadow.querySelector("svg");
+        if (liveSvg) openZoomOverlay(liveSvg);
+      });
 
       element.setAttribute(RENDERED_ATTR, "true");
       parent.classList.add("mermaid-ext-original-hidden");
@@ -260,7 +263,7 @@
     zoomBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const svgEl = diagramWrapper.querySelector("svg");
-      if (svgEl) openZoomOverlay(svgEl.outerHTML, source);
+      if (svgEl) openZoomOverlay(svgEl);
     });
 
     toolbar.appendChild(toggleBtn);
@@ -272,33 +275,67 @@
   }
 
   // ─── Zoom Overlay ───────────────────────────────────────────────────
-  function openZoomOverlay(svgHtml, source) {
+  const MIN_SCALE = 0.25;
+  const MAX_SCALE = 5;
+  const BUTTON_STEP = 0.25;
+  const WHEEL_STEP = 0.1;
+  const FIT_W_RATIO = 0.95;
+  const FIT_H_RATIO = 0.90;
+
+  function openZoomOverlay(svgElement) {
     const existing = document.getElementById("mermaid-ext-zoom-overlay");
     if (existing) existing.remove();
+    if (!svgElement) return;
+
+    // Mermaid SVGs declare width="100%" with no intrinsic height, so a clone
+    // detached from its container collapses to the ~300×150 CSS default.
+    // Measure the live element first and size the clone in explicit pixels.
+    let baseWidth = 0;
+    let baseHeight = 0;
+    const rect = svgElement.getBoundingClientRect();
+    baseWidth = rect.width;
+    baseHeight = rect.height;
+    if ((!baseWidth || !baseHeight) && svgElement.viewBox && svgElement.viewBox.baseVal) {
+      baseWidth = svgElement.viewBox.baseVal.width || baseWidth;
+      baseHeight = svgElement.viewBox.baseVal.height || baseHeight;
+    }
+
+    const maxInitW = window.innerWidth * FIT_W_RATIO;
+    const maxInitH = window.innerHeight * FIT_H_RATIO;
+    if (baseWidth > maxInitW || baseHeight > maxInitH) {
+      const fit = Math.min(maxInitW / baseWidth, maxInitH / baseHeight);
+      baseWidth *= fit;
+      baseHeight *= fit;
+    }
 
     const overlay = document.createElement("div");
     overlay.id = "mermaid-ext-zoom-overlay";
     overlay.className = "mermaid-ext-zoom-overlay";
 
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+    };
+    const onKeydown = (e) => { if (e.key === "Escape") close(); };
+
     const closeBtn = document.createElement("button");
     closeBtn.className = "mermaid-ext-zoom-close";
     closeBtn.textContent = "\u00D7";
     closeBtn.title = "Close (Esc)";
-    closeBtn.addEventListener("click", () => overlay.remove());
+    closeBtn.addEventListener("click", close);
 
     const content = document.createElement("div");
     content.className = "mermaid-ext-zoom-content";
-    content.innerHTML = svgHtml;
 
-    const svg = content.querySelector("svg");
-    if (svg) {
-      svg.style.maxWidth = "95vw";
-      svg.style.maxHeight = "90vh";
-      svg.style.width = "auto";
-      svg.style.height = "auto";
+    const svg = svgElement.cloneNode(true);
+    svg.style.maxWidth = "none";
+    svg.style.maxHeight = "none";
+    if (baseWidth && baseHeight) {
+      svg.style.width = baseWidth + "px";
+      svg.style.height = baseHeight + "px";
     }
+    content.appendChild(svg);
 
-    let scale = 1;
     const zoomControls = document.createElement("div");
     zoomControls.className = "mermaid-ext-zoom-controls";
     zoomControls.innerHTML = `
@@ -313,32 +350,27 @@
     overlay.appendChild(content);
     document.body.appendChild(overlay);
 
-    const updateZoom = () => {
-      content.style.transform = `scale(${scale})`;
-      overlay.querySelector("#mermaid-ext-zoom-level").textContent = `${Math.round(scale * 100)}%`;
+    const zoomLevelEl = overlay.querySelector("#mermaid-ext-zoom-level");
+    let scale = 1;
+    const setScale = (next) => {
+      scale = Math.min(Math.max(next, MIN_SCALE), MAX_SCALE);
+      if (baseWidth && baseHeight) {
+        svg.style.width = (baseWidth * scale) + "px";
+        svg.style.height = (baseHeight * scale) + "px";
+      }
+      zoomLevelEl.textContent = `${Math.round(scale * 100)}%`;
     };
-    overlay.querySelector("#mermaid-ext-zoom-in").addEventListener("click", () => {
-      scale = Math.min(scale + 0.25, 5); updateZoom();
-    });
-    overlay.querySelector("#mermaid-ext-zoom-out").addEventListener("click", () => {
-      scale = Math.max(scale - 0.25, 0.25); updateZoom();
-    });
-    overlay.querySelector("#mermaid-ext-zoom-reset").addEventListener("click", () => {
-      scale = 1; updateZoom();
-    });
+
+    overlay.querySelector("#mermaid-ext-zoom-in").addEventListener("click", () => setScale(scale + BUTTON_STEP));
+    overlay.querySelector("#mermaid-ext-zoom-out").addEventListener("click", () => setScale(scale - BUTTON_STEP));
+    overlay.querySelector("#mermaid-ext-zoom-reset").addEventListener("click", () => setScale(1));
     overlay.addEventListener("wheel", (e) => {
       e.preventDefault();
-      scale = e.deltaY < 0
-        ? Math.min(scale + 0.1, 5)
-        : Math.max(scale - 0.1, 0.25);
-      updateZoom();
+      setScale(scale + (e.deltaY < 0 ? WHEEL_STEP : -WHEEL_STEP));
     }, { passive: false });
 
-    const escHandler = (e) => {
-      if (e.key === "Escape") { overlay.remove(); document.removeEventListener("keydown", escHandler); }
-    };
-    document.addEventListener("keydown", escHandler);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    document.addEventListener("keydown", onKeydown);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   }
 
   // ─── Full-page scan with retry ──────────────────────────────────────

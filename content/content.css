@@ -170,10 +170,9 @@
 
 .mermaid-ext-zoom-content {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s ease;
-  transform-origin: center center;
+  /* `safe` keeps the top/left reachable when the SVG overflows the card. */
+  align-items: safe center;
+  justify-content: safe center;
   padding: 20px;
   background: #fff;
   border-radius: 12px;
@@ -181,6 +180,11 @@
   max-width: 95vw;
   max-height: 90vh;
   overflow: auto;
+}
+
+.mermaid-ext-zoom-content svg {
+  transition: width 0.15s ease, height 0.15s ease;
+  flex-shrink: 0;
 }
 
 .mermaid-ext-zoom-controls {
