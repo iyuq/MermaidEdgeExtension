@@ -108,6 +108,26 @@
     <div id="previewError" class="preview-error" style="display:none;"></div>
   </div>
 
+  <!-- Advanced settings -->
+  <div class="section">
+    <details class="reference">
+      <summary class="section-label reference-toggle">Advanced</summary>
+      <div class="advanced-body">
+        <label class="advanced-label" for="plantumlServer">PlantUML server</label>
+        <input type="text" id="plantumlServer" class="advanced-input"
+               placeholder="https://www.plantuml.com/plantuml"
+               spellcheck="false" autocomplete="off">
+        <div class="advanced-hint">Used to render PlantUML blocks. Leave blank for the default.</div>
+
+        <label class="advanced-label" for="dotServer">DOT (Graphviz) server</label>
+        <input type="text" id="dotServer" class="advanced-input"
+               placeholder="https://kroki.io"
+               spellcheck="false" autocomplete="off">
+        <div class="advanced-hint">Kroki-compatible server for DOT blocks. Leave blank for the default.</div>
+      </div>
+    </details>
+  </div>
+
   <!-- Supported types reference -->
   <div class="section">
     <details class="reference">

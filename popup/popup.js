@@ -6,6 +6,8 @@
 
   let currentTheme = "default";
   let renderCounter = 0;
+  const DEFAULT_PLANTUML_SERVER = "https://www.plantuml.com/plantuml";
+  const DEFAULT_DOT_SERVER = "https://kroki.io";
 
   // ─── Templates for all 23 diagram types ─────────────────────────────
   const TEMPLATES = {
@@ -223,12 +225,26 @@ Bio-conversion,Gas,81.144`,
   async function init() {
     // Load saved settings
     try {
-      const result = await chrome.storage.sync.get(["theme", "enabled"]);
+      const result = await chrome.storage.sync.get(["theme", "enabled", "plantumlServer", "dotServer"]);
       currentTheme = result.theme || "default";
       const enabled = result.enabled !== false;
 
       document.getElementById("enableToggle").checked = enabled;
       setActiveTheme(currentTheme);
+
+      const serverInput = document.getElementById("plantumlServer");
+      if (serverInput) {
+        serverInput.value = result.plantumlServer && result.plantumlServer !== DEFAULT_PLANTUML_SERVER
+          ? result.plantumlServer
+          : "";
+      }
+
+      const dotInput = document.getElementById("dotServer");
+      if (dotInput) {
+        dotInput.value = result.dotServer && result.dotServer !== DEFAULT_DOT_SERVER
+          ? result.dotServer
+          : "";
+      }
     } catch (e) { /* ignore */ }
 
     // Initialize mermaid for popup preview
@@ -377,6 +393,40 @@ Bio-conversion,Gas,81.144`,
       document.getElementById("preview").innerHTML = '<div class="preview-placeholder">Click "Render" to preview your diagram</div>';
       document.getElementById("previewError").style.display = "none";
     });
+
+    // Server URL inputs: one for PlantUML, one for DOT/Kroki.
+    bindServerInput("plantumlServer", DEFAULT_PLANTUML_SERVER, "PLANTUML_SERVER_CHANGED");
+    bindServerInput("dotServer", DEFAULT_DOT_SERVER, "DOT_SERVER_CHANGED");
+  }
+
+  function bindServerInput(storageKey, defaultValue, messageType) {
+    const input = document.getElementById(storageKey);
+    if (!input) return;
+    input.addEventListener("change", async () => {
+      const raw = input.value.trim();
+      const server = raw || defaultValue;
+      if (raw && !isValidUrl(raw)) {
+        input.classList.add("invalid");
+        return;
+      }
+      input.classList.remove("invalid");
+      await chrome.storage.sync.set({ [storageKey]: server });
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && tab.id) {
+          chrome.tabs.sendMessage(tab.id, { type: messageType, server });
+        }
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  function isValidUrl(value) {
+    try {
+      const u = new URL(value);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch (e) {
+      return false;
+    }
   }
 
   // ─── Render Preview ─────────────────────────────────────────────────

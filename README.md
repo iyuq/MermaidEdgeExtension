@@ -1,19 +1,20 @@
-# Mermaid Diagram Previewer
+# Mermaid / PlantUML / DOT Diagram Previewer
 
-A Microsoft Edge extension that automatically detects and renders Mermaid code blocks on any web page.
+A Microsoft Edge extension that automatically detects and renders Mermaid, PlantUML, and DOT (Graphviz) code blocks on any web page.
 
 ![Inline Rendering](store/screenshots/1-inline-rendering.png)
 
 ## Features
 
-- **Auto-Detection** — Finds and renders Mermaid code blocks on GitHub, GitLab, Azure DevOps, Confluence, Bitbucket, MkDocs, Docusaurus, and any Markdown-based site
-- **All 23 Diagram Types** — Flowchart, Sequence, Class, State, ER, Gantt, Pie, Mindmap, Timeline, Git Graph, Quadrant, Requirement, C4, Sankey, XY Chart, Block, Packet, Kanban, Architecture, Radar, Treemap, User Journey, ZenUML
+- **Auto-Detection** — Finds Mermaid, PlantUML (`@startuml`), and DOT (`digraph …`) code blocks on GitHub, GitLab, Azure DevOps, Confluence, Bitbucket, MkDocs, Docusaurus, and any Markdown-based site
+- **All 23 Mermaid Diagram Types** — Flowchart, Sequence, Class, State, ER, Gantt, Pie, Mindmap, Timeline, Git Graph, Quadrant, Requirement, C4, Sankey, XY Chart, Block, Packet, Kanban, Architecture, Radar, Treemap, User Journey, ZenUML
+- **PlantUML** — Rendered via a configurable server (default `www.plantuml.com`; override in the popup)
+- **DOT / Graphviz** — Rendered via a configurable Kroki-compatible server (default `kroki.io`; override in the popup)
 - **4 Themes** — Default, Dark, Forest, Neutral
 - **Click to Zoom** — Fullscreen overlay with scroll-wheel zoom
-- **One-Click Copy** — Copy rendered SVG or Mermaid source to clipboard
-- **Built-in Editor** — Popup editor with live preview and templates for all 23 diagram types
+- **One-Click Copy** — Copy rendered SVG or source to clipboard
+- **Built-in Editor** — Popup editor with live preview and templates for all 23 Mermaid diagram types
 - **SPA Support** — Works with single-page apps (GitHub Turbo, GitLab, Azure DevOps) via URL change detection and retry scanning
-- **Lightweight** — Only loads the Mermaid rendering engine when code blocks are detected
 
 ![Popup Editor](store/screenshots/2-popup-editor.png)
 
@@ -23,16 +24,28 @@ A Microsoft Edge extension that automatically detects and renders Mermaid code b
 
 ## Install from Source
 
-1. Clone this repo
-2. Run `npm install` to download the Mermaid library
-3. Open `edge://extensions/`
-4. Enable **Developer mode**
-5. Click **Load unpacked** and select the repo folder
+```bash
+git clone <this-repo>
+cd MermaidEdgeExtension
+npm install
+npm run build
+```
+
+Then:
+
+1. Open `edge://extensions/`
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select the generated `dist/` folder
+
+Re-run `npm run build` after pulling changes.
 
 ## Project Structure
 
 ```
 ├── manifest.json              # MV3 extension manifest
+├── package.json               # npm deps: mermaid
+├── scripts/
+│   └── build.mjs              # Copies sources + vendor libs into dist/
 ├── background/
 │   └── service-worker.js      # Badge updates, SPA navigation handling
 ├── content/
@@ -43,8 +56,9 @@ A Microsoft Edge extension that automatically detects and renders Mermaid code b
 │   ├── popup.js               # Editor, preview, theme switching, templates
 │   └── popup.css              # Popup styles
 ├── lib/
-│   └── mermaid.min.js         # Mermaid library (v11.13.0)
-└── icons/                     # Extension icons (16/32/48/128px)
+│   └── plantuml-encoder.js    # PlantUML URL encoder (our own, ~55 lines)
+├── icons/                     # Extension icons (16/32/48/128px)
+└── dist/                      # Build output — load this as unpacked
 ```
 
 ## Enable in InPrivate Mode

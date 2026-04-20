@@ -1,6 +1,6 @@
 /**
- * Mermaid Diagram Previewer - Content Script
- * Detects and renders Mermaid diagrams on web pages.
+ * Mermaid / PlantUML / DOT Diagram Previewer - Content Script
+ * Detects and renders Mermaid, PlantUML, and DOT (Graphviz) diagrams.
  * Handles SPA navigation (GitHub Turbo/PJAX, GitLab, Azure DevOps, etc.).
  */
 (function () {
@@ -8,14 +8,21 @@
 
   const RENDERED_ATTR = "data-mermaid-ext-rendered";
   const CONTAINER_CLASS = "mermaid-ext-container";
+  const DEFAULT_PLANTUML_SERVER = "https://www.plantuml.com/plantuml";
+  const DEFAULT_DOT_SERVER = "https://kroki.io";
   let renderCounter = 0;
   let initialized = false;
   let currentTheme = "default";
   let extensionEnabled = true;
-  let isRendering = false; // guard against concurrent render passes
+  let plantumlServer = DEFAULT_PLANTUML_SERVER;
+  let dotServer = DEFAULT_DOT_SERVER;
+  let activeRender = null;                     // in-flight render promise
+  const pendingQueue = [];                     // blocks waiting for the active render to drain
+  const queuedElements = new WeakSet();        // dedup across concurrent callers
+  const renderCache = new Map();               // `${kind}:${source}` → svgText, keeps re-renders sync
 
   // ─── Detection Selectors ────────────────────────────────────────────
-  const SELECTORS = [
+  const MERMAID_SELECTORS = [
     'pre > code.language-mermaid',
     'pre > code.lang-mermaid',
     'code.language-mermaid',
@@ -31,6 +38,43 @@
     '.js-render-mermaid',
   ];
 
+  const PLANTUML_SELECTORS = [
+    'pre > code.language-plantuml',
+    'pre > code.language-puml',
+    'pre > code.lang-plantuml',
+    'pre > code.lang-puml',
+    'code.language-plantuml',
+    'code.language-puml',
+    'code.lang-plantuml',
+    'code.lang-puml',
+    'pre.plantuml',
+    '[data-lang="plantuml"] > code',
+    '[data-language="plantuml"] > code',
+    'pre[lang="plantuml"]',
+    'pre[data-lang="plantuml"]',
+  ];
+
+  const DOT_SELECTORS = [
+    'pre > code.language-dot',
+    'pre > code.language-graphviz',
+    'pre > code.lang-dot',
+    'pre > code.lang-graphviz',
+    'code.language-dot',
+    'code.language-graphviz',
+    'code.lang-dot',
+    'code.lang-graphviz',
+    'pre.dot',
+    'pre.graphviz',
+    '[data-lang="dot"] > code',
+    '[data-lang="graphviz"] > code',
+    '[data-language="dot"] > code',
+    '[data-language="graphviz"] > code',
+    'pre[lang="dot"]',
+    'pre[lang="graphviz"]',
+    'pre[data-lang="dot"]',
+    'pre[data-lang="graphviz"]',
+  ];
+
   const MERMAID_KEYWORDS = [
     'graph ', 'graph\n', 'flowchart ', 'flowchart\n',
     'sequenceDiagram', 'classDiagram', 'stateDiagram',
@@ -41,6 +85,15 @@
     'kanban', 'architecture-beta', 'radar-beta', 'treemap-beta',
     'journey', 'zenuml',
   ];
+
+  const PLANTUML_KEYWORDS = [
+    '@startuml', '@startmindmap', '@startgantt', '@startsalt',
+    '@startwbs', '@startditaa', '@startjson', '@startyaml',
+  ];
+
+  // The opening brace distinguishes DOT's `graph Name {` from Mermaid's
+  // `graph TB\n…` flowchart syntax.
+  const DOT_SYNTAX_RE = /^\s*(?:strict\s+)?(?:di)?graph(?:\s+[A-Za-z_]\w*)?\s*\{/;
 
   // ─── Initialize Mermaid ─────────────────────────────────────────────
   function initMermaid(theme) {
@@ -68,39 +121,46 @@
     return true;
   }
 
-  // ─── Detect Mermaid Blocks ──────────────────────────────────────────
+  // ─── Detect Diagram Blocks ──────────────────────────────────────────
   function detectBlocks(root) {
     const blocks = [];
     const seen = new Set();
 
     const searchRoot = root || document;
 
-    // Query by selectors
-    for (const selector of SELECTORS) {
-      try {
-        const elements = searchRoot.querySelectorAll(selector);
-        for (const el of elements) {
-          if (el.hasAttribute(RENDERED_ATTR) || seen.has(el)) continue;
-          const source = extractSource(el);
-          if (source && isMermaidSyntax(source)) {
-            seen.add(el);
-            blocks.push({ element: el, source });
-          }
-        }
-      } catch (e) { /* ignore invalid selectors */ }
-    }
+    const tryAdd = (el, kind) => {
+      if (seen.has(el) || el.hasAttribute(RENDERED_ATTR)) return;
+      const source = extractSource(el);
+      if (!source) return;
+      const resolvedKind = kind || classifySource(source);
+      if (!resolvedKind) return;
+      seen.add(el);
+      blocks.push({ element: el, source, kind: resolvedKind });
+    };
 
-    // Fallback: scan all <code> elements inside <pre> tags
-    try {
-      const allCode = searchRoot.querySelectorAll("pre > code");
-      for (const el of allCode) {
-        if (el.hasAttribute(RENDERED_ATTR) || seen.has(el)) continue;
-        const source = extractSource(el);
-        if (source && isMermaidSyntax(source)) {
-          seen.add(el);
-          blocks.push({ element: el, source });
-        }
+    const runSelectors = (selectors, kind) => {
+      for (const selector of selectors) {
+        try {
+          searchRoot.querySelectorAll(selector).forEach(el => tryAdd(el, kind));
+        } catch (e) { /* ignore invalid selectors */ }
       }
+    };
+
+    runSelectors(MERMAID_SELECTORS, "mermaid");
+    runSelectors(PLANTUML_SELECTORS, "plantuml");
+    runSelectors(DOT_SELECTORS, "dot");
+
+    // Fallback: classify by content.
+    try {
+      // <pre><code>…</code></pre>
+      searchRoot.querySelectorAll("pre > code").forEach(el => tryAdd(el, null));
+      // Bare <code>…</code> with multi-line content. Some hosts (e.g. Azure
+      // DevOps for unknown-language fences) render fenced blocks this way.
+      // Multi-line filter avoids false-positives on inline code.
+      searchRoot.querySelectorAll("code").forEach(el => {
+        if (el.parentElement && el.parentElement.tagName === "PRE") return;
+        if (el.textContent && el.textContent.indexOf("\n") !== -1) tryAdd(el, null);
+      });
     } catch (e) { /* ignore */ }
 
     return blocks;
@@ -112,7 +172,25 @@
     clone.querySelectorAll("div, p").forEach(block => {
       block.prepend(document.createTextNode("\n"));
     });
-    return (clone.textContent || "").trim();
+    return decodeHtmlEntities((clone.textContent || "").trim());
+  }
+
+  // Some hosts (Azure DevOps for unknown-language fences) double-encode
+  // code-block contents — the HTML contains `&amp;gt;`, so textContent
+  // yields the literal string `&gt;`. Run one extra decode pass so arrows
+  // like `->` and `-->` survive. No-op on correctly-encoded hosts.
+  function decodeHtmlEntities(text) {
+    if (!/&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/i.test(text)) return text;
+    const ta = document.createElement("textarea");
+    ta.innerHTML = text;
+    return ta.value;
+  }
+
+  function classifySource(text) {
+    if (isMermaidSyntax(text)) return "mermaid";
+    if (isPlantumlSyntax(text)) return "plantuml";
+    if (isDotSyntax(text)) return "dot";
+    return null;
   }
 
   function isMermaidSyntax(text) {
@@ -123,16 +201,24 @@
     return MERMAID_KEYWORDS.some(kw => cleaned.startsWith(kw));
   }
 
+  function isPlantumlSyntax(text) {
+    const trimmed = text.trimStart();
+    return PLANTUML_KEYWORDS.some(kw => trimmed.startsWith(kw));
+  }
+
+  function isDotSyntax(text) {
+    return DOT_SYNTAX_RE.test(text);
+  }
+
   // ─── Render a Single Block ─────────────────────────────────────────
   async function renderBlock(block) {
-    const { element, source } = block;
+    const { element, source, kind } = block;
 
     // Guard: element must still be in the DOM (SPA may have navigated away)
     if (!element.isConnected) return;
     if (element.hasAttribute(RENDERED_ATTR)) return;
 
-    // Ensure mermaid is initialized
-    if (!initialized && !initMermaid(currentTheme)) {
+    if (kind === "mermaid" && !initialized && !initMermaid(currentTheme)) {
       console.error("[Mermaid Ext] mermaid library not available");
       return;
     }
@@ -142,6 +228,7 @@
     const container = document.createElement("div");
     container.className = CONTAINER_CLASS;
     container.setAttribute("data-mermaid-ext-id", id);
+    container.setAttribute("data-mermaid-ext-kind", kind);
     container.innerHTML = '<div class="mermaid-ext-loading"><div class="mermaid-ext-spinner"></div><span>Rendering diagram...</span></div>';
 
     const parent = element.closest("pre") || element;
@@ -151,12 +238,14 @@
     parent.parentNode.insertBefore(container, parent.nextSibling);
 
     try {
-      const tempContainer = document.createElement("div");
-      tempContainer.style.cssText = "position:fixed;top:-9999px;left:-9999px;visibility:hidden;";
-      document.body.appendChild(tempContainer);
-
-      const { svg } = await mermaid.render(id, source, tempContainer);
-      tempContainer.remove();
+      const cacheKey = `${kind}:${source}`;
+      let svgText = renderCache.get(cacheKey);
+      if (svgText === undefined) {
+        svgText = kind === "plantuml" ? await renderPlantuml(source)
+                : kind === "dot"      ? await renderDot(source)
+                : await renderMermaid(id, source);
+        renderCache.set(cacheKey, svgText);
+      }
 
       // Guard: check everything is still in the DOM after async render
       if (!element.isConnected || !container.isConnected) {
@@ -174,9 +263,9 @@
           :host { display: flex; justify-content: center; align-items: center; padding: 16px; cursor: zoom-in; min-height: 60px; overflow: auto; }
           svg { max-width: 100%; height: auto; }
         </style>
-        ${svg}`;
+        ${svgText}`;
 
-      const toolbar = createToolbar(source, shadow, parent);
+      const toolbar = createToolbar(source, shadow, parent, kind);
       container.appendChild(toolbar);
       container.appendChild(wrapper);
 
@@ -196,11 +285,14 @@
       if (orphanD) orphanD.remove();
 
       if (container.isConnected) {
+        const label = kind === "plantuml" ? "PlantUML rendering error"
+                    : kind === "dot"      ? "DOT rendering error"
+                    : "Mermaid rendering error";
         container.innerHTML = `
           <div class="mermaid-ext-error">
             <div class="mermaid-ext-error-header">
               <span class="mermaid-ext-error-icon">⚠</span>
-              <span>Mermaid rendering error</span>
+              <span>${escapeHtml(label)}</span>
             </div>
             <pre class="mermaid-ext-error-message">${escapeHtml(err.message || String(err))}</pre>
           </div>`;
@@ -208,10 +300,72 @@
     }
   }
 
+  async function renderMermaid(id, source) {
+    const tempContainer = document.createElement("div");
+    tempContainer.style.cssText = "position:fixed;top:-9999px;left:-9999px;visibility:hidden;";
+    document.body.appendChild(tempContainer);
+    try {
+      const { svg } = await mermaid.render(id, source, tempContainer);
+      return svg;
+    } finally {
+      tempContainer.remove();
+    }
+  }
+
+  async function renderPlantuml(source) {
+    if (!window.plantumlEncoder || typeof window.plantumlEncoder.encode !== "function") {
+      throw new Error("PlantUML encoder not available");
+    }
+    const encoded = await window.plantumlEncoder.encode(source);
+    const base = (plantumlServer || DEFAULT_PLANTUML_SERVER).replace(/\/+$/, "");
+    const url = `${base}/svg/${encoded}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`${response.status} ${response.statusText}\n${body.slice(0, 2048)}`);
+    }
+    const text = await response.text();
+    if (!/<svg[\s>]/i.test(text)) {
+      throw new Error(`Unexpected response from ${base}:\n${text.slice(0, 2048)}`);
+    }
+    return text;
+  }
+
+  // Kroki-compatible DOT rendering. Compresses with zlib (CompressionStream
+  // 'deflate') then encodes as URL-safe base64 — matches kroki.io's
+  // /graphviz/svg/<encoded> endpoint.
+  async function krokiEncode(source) {
+    const bytes = new TextEncoder().encode(source);
+    const stream = new Response(bytes).body.pipeThrough(new CompressionStream("deflate"));
+    const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < compressed.length; i++) binary += String.fromCharCode(compressed[i]);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_");
+  }
+
+  async function renderDot(source) {
+    const encoded = await krokiEncode(source);
+    const base = (dotServer || DEFAULT_DOT_SERVER).replace(/\/+$/, "");
+    const url = `${base}/graphviz/svg/${encoded}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`${response.status} ${response.statusText}\n${body.slice(0, 2048)}`);
+    }
+    const text = await response.text();
+    if (!/<svg[\s>]/i.test(text)) {
+      throw new Error(`Unexpected response from ${base}:\n${text.slice(0, 2048)}`);
+    }
+    return text;
+  }
+
   // ─── Toolbar ────────────────────────────────────────────────────────
-  function createToolbar(source, diagramWrapper, originalPre) {
+  function createToolbar(source, diagramWrapper, originalPre, kind) {
     const toolbar = document.createElement("div");
     toolbar.className = "mermaid-ext-toolbar";
+    const sourceLabel = kind === "plantuml" ? "PlantUML"
+                       : kind === "dot"     ? "DOT"
+                       : "Mermaid";
 
     const toggleBtn = document.createElement("button");
     toggleBtn.className = "mermaid-ext-btn";
@@ -247,7 +401,7 @@
     const copySrcBtn = document.createElement("button");
     copySrcBtn.className = "mermaid-ext-btn";
     copySrcBtn.textContent = "Copy Source";
-    copySrcBtn.title = "Copy Mermaid source to clipboard";
+    copySrcBtn.title = `Copy ${sourceLabel} source to clipboard`;
     copySrcBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(source).then(() => {
@@ -385,11 +539,10 @@
     function attempt(index) {
       if (!extensionEnabled) return;
       const blocks = detectBlocks();
-      if (blocks.length > 0) {
-        renderAllBlocks(blocks);
-        return; // found blocks — stop retrying
-      }
-      // Schedule next attempt if there are more delays
+      if (blocks.length > 0) renderAllBlocks(blocks);
+      // Keep running the cascade even after a find — blocks can arrive
+      // later in the same SPA transition (e.g. markdown preview batches).
+      // renderAllBlocks dedups by element, so repeat detections are free.
       if (index < delaysMs.length - 1) {
         scanTimer = setTimeout(() => attempt(index + 1), delaysMs[index + 1] - delaysMs[index]);
       }
@@ -407,7 +560,6 @@
   const SPA_SCAN_DELAYS = [0, 150, 400, 800, 1500];
 
   // ─── MutationObserver ───────────────────────────────────────────────
-  let observerTimeout = null;
   function setupObserver() {
     const observer = new MutationObserver((mutations) => {
       if (!extensionEnabled) return;
@@ -430,23 +582,20 @@
         }
       }
 
-      clearTimeout(observerTimeout);
-
       if (majorChange) {
         // Likely SPA navigation — do a full scan with retry cascade.
         // The content may still be loading, so retries are essential.
         scheduleScan(SPA_SCAN_DELAYS);
-      } else {
-        // Small mutation — just scan the added subtrees after a short debounce
-        observerTimeout = setTimeout(() => {
-          for (const root of addedRoots) {
-            if (!root.isConnected) continue;
-            const blocks = detectBlocks(root);
-            if (blocks.length > 0) {
-              renderAllBlocks(blocks);
-            }
-          }
-        }, 200);
+        return;
+      }
+      // Small mutation — render synchronously in the observer callback so
+      // cache-hit re-renders (after hosts like ADO wipe our container on
+      // their own re-render) land before the next browser paint. This is
+      // what eliminates the "diagram → text → diagram" flicker.
+      for (const root of addedRoots) {
+        if (!root.isConnected) continue;
+        const blocks = detectBlocks(root);
+        if (blocks.length > 0) renderAllBlocks(blocks);
       }
     });
 
@@ -512,32 +661,39 @@
   }
 
   // ─── Render All Blocks ──────────────────────────────────────────────
+  // Enqueue blocks into a single shared queue. If a render loop is already
+  // active, it drains the queue when it gets there — callers that fire
+  // during an in-flight render no longer drop blocks on the floor.
   async function renderAllBlocks(blocks) {
-    if (isRendering) return 0;
-    isRendering = true;
-
-    let rendered = 0;
-    try {
-      for (const block of blocks) {
-        try {
-          await renderBlock(block);
-          rendered++;
-        } catch (e) {
-          console.error("[Mermaid Ext] Failed to render block:", e);
-        }
-      }
-      if (rendered > 0) {
-        try {
-          chrome.runtime.sendMessage({
-            type: "DIAGRAMS_RENDERED",
-            count: rendered,
-          });
-        } catch (e) { /* Extension context may be invalid */ }
-      }
-    } finally {
-      isRendering = false;
+    let queued = 0;
+    for (const block of blocks) {
+      if (queuedElements.has(block.element)) continue;
+      queuedElements.add(block.element);
+      pendingQueue.push(block);
+      queued++;
     }
-    return rendered;
+    if (activeRender) return queued;
+    activeRender = drainQueue();
+    try { await activeRender; } finally { activeRender = null; }
+    return queued;
+  }
+
+  async function drainQueue() {
+    let rendered = 0;
+    while (pendingQueue.length > 0) {
+      const block = pendingQueue.shift();
+      try {
+        await renderBlock(block);
+        rendered++;
+      } catch (e) {
+        console.error("[Mermaid Ext] Failed to render block:", e);
+      }
+    }
+    if (rendered > 0) {
+      try {
+        chrome.runtime.sendMessage({ type: "DIAGRAMS_RENDERED", count: rendered });
+      } catch (e) { /* Extension context may be invalid */ }
+    }
   }
 
   // ─── Re-render All ──────────────────────────────────────────────────
@@ -590,6 +746,18 @@
       sendResponse({ ok: true });
       return true;
     }
+    if (msg.type === "PLANTUML_SERVER_CHANGED") {
+      plantumlServer = msg.server || DEFAULT_PLANTUML_SERVER;
+      reRenderAll(currentTheme);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === "DOT_SERVER_CHANGED") {
+      dotServer = msg.server || DEFAULT_DOT_SERVER;
+      reRenderAll(currentTheme);
+      sendResponse({ ok: true });
+      return true;
+    }
   });
 
   // ─── Utility ────────────────────────────────────────────────────────
@@ -603,9 +771,11 @@
   async function main() {
     let theme = "default";
     try {
-      const result = await chrome.storage.sync.get(["theme", "enabled"]);
+      const result = await chrome.storage.sync.get(["theme", "enabled", "plantumlServer", "dotServer"]);
       theme = result.theme || "default";
       extensionEnabled = result.enabled !== false;
+      plantumlServer = result.plantumlServer || DEFAULT_PLANTUML_SERVER;
+      dotServer = result.dotServer || DEFAULT_DOT_SERVER;
     } catch (e) { /* ignore */ }
 
     if (!extensionEnabled) return;
@@ -618,15 +788,15 @@
       return;
     }
 
-    // Initial scan
-    const blocks = detectBlocks();
-    if (blocks.length > 0) {
-      await renderAllBlocks(blocks);
-    }
-
-    // Watch for SPA navigation and dynamic content
+    // Watch for SPA navigation and dynamic content first so anything the
+    // page adds *during* the scan cascade still gets picked up.
     setupObserver();
     setupUrlChangeDetection();
+
+    // Initial scan uses the same retry cascade as SPA transitions — some
+    // hosts (e.g. Azure DevOps markdown preview) add diagram blocks after
+    // document_idle, so a single scan would miss the late arrivals.
+    scheduleScan(SPA_SCAN_DELAYS);
   }
 
   main();

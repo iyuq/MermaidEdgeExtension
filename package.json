@@ -1,0 +1,19 @@
+{
+  "name": "mermaid-diagram-previewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Microsoft Edge extension that renders Mermaid, PlantUML, and DOT diagrams inline on any web page.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "validate": "node scripts/validate.mjs"
+  },
+  "dependencies": {
+    "mermaid": "^11.13.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "playwright": "^1.59.1"
+  }
+}
